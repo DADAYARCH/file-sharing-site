@@ -1,9 +1,12 @@
+const { defineConfig } = require('ts-jest')
+
 module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'jsdom',
     moduleFileExtensions: ['ts','tsx','js','jsx','json'],
     transform: {
-        '^.+\\.[jt]sx?$': 'ts-jest'
+        '^.+\\.[jt]sx?$': 'ts-jest',
+        '^.+\\.jsx?$': 'babel-jest'
     },
     collectCoverage: true,
     coverageDirectory: 'coverage',
