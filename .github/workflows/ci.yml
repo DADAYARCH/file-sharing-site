@@ -32,7 +32,9 @@ jobs:
         with:
           node-version: '18'
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm install
+          npm install @rollup/rollup-linux-x64-gnu
       - name: Start server, wait and run E2E
         run: |
           npm run dev &
