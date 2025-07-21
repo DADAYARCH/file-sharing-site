@@ -1,15 +1,41 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
-  main:
+  test:
+    name: Unit Tests & Coverage
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run unit tests
+        run: npm test
+      - name: Check coverage threshold
+        run: npm run test:coverage
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm ci
+      - name: Start dev server
+        run: npm run dev &  # Запускаем Vite в фоне
+      - name: Wait for dev server
+        run: npx wait-on http://localhost:5173
+      - name: Run Cypress
+        run: npm run cy:run
