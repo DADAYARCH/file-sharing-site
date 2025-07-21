@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Start dev server
-        run: npm run dev &  # Запускаем Vite в фоне
+        run: npm run dev &
       - name: Wait for dev server
         run: npx wait-on http://localhost:5173
       - name: Run Cypress
