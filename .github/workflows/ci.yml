@@ -5,16 +5,17 @@ on:
     branches: [ master ]
 
 jobs:
-
   test:
     name: Unit Tests & Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          node-version: '18'
-      - run: npm ci
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install
       - name: Run unit tests
         run: npm test
       - name: Check coverage threshold
@@ -24,28 +25,19 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     needs: test
-    services:
-      web:
-        image: node:18
-        options: >-
-          --health-cmd \"curl --fail http://localhost:5173 || exit 1\" 
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5173:5173
-        volumes:
-          - ./:/app
-        working-directory: /app
-        command: bash -lc \"npm ci && npm run dev\"
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          node-version: '18'
-      - run: npm ci
-      - name: Wait for dev server
-        run: npx wait-on http://localhost:5173
-      - name: Run Cypress
-        run: npm run cy:run
+          node-version: '20'
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install @rollup/rollup-linux-x64-gnu
+      - name: Start server, wait and run E2E
+        run: |
+          npm run dev &
+          npx wait-on http://localhost:5173 --timeout 120000
+          npm run cy:run
 
