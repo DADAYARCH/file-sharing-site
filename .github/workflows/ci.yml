@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: '18'
       - name: Install dependencies
-        run: npm ci
+        run: npm install
       - name: Start server, wait and run E2E
         run: |
           npm run dev &
