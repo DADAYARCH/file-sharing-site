@@ -1,9 +1,25 @@
 {
   "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
+    "moduleResolution": "node",
     "jsx": "react-jsx",
     "allowJs": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "strict": true,
     "types": ["jest", "node"]
-  }
+  },
+  "include": [
+    "src",
+    "server"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage"
+  ]
 }

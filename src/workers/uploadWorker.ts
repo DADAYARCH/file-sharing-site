@@ -1,30 +1,36 @@
-import type { ChunkOffset } from '../utils/chunker';
-
 interface MessageIn {
     file: File;
     chunkSize: number;
+    fileId: string;
 }
 
 interface Progress {
-    index: number;
+    loaded: number;
     total: number;
 }
 
 self.addEventListener('message', async ({ data }) => {
-    const { file, chunkSize } = data as MessageIn;
-    const { default: crypto } = await import('node:crypto');
+    const { file, chunkSize, fileId } = data as MessageIn;
+    const subtler = crypto.subtle;
 
-    const totalChunks = Math.ceil(file.size / chunkSize);
+    const total = file.size;
+    const totalChunks = Math.ceil(total / chunkSize);
+    let loaded = 0;
+
     for (let i = 0; i < totalChunks; i++) {
         const start = i * chunkSize;
-        const end = Math.min((i + 1) * chunkSize, file.size);
+        const end = Math.min((i + 1) * chunkSize, total);
         const chunk = file.slice(start, end);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', await chunk.arrayBuffer());
 
-        self.postMessage<Progress>({ index: i, total: totalChunks });
+        await subtler.digest('SHA-256', await chunk.arrayBuffer());
 
-        // здесь заменить на реальный POST, если сервер уже готов
-        // await fetch('/api/upload-chunk', { method: 'POST', body: chunk, headers: { 'X-Chunk-Index': String(i) } });
+        await fetch(
+            `/api/upload-chunk?fileId=${fileId}&index=${i}&total=${totalChunks}`,
+            { method: 'POST', body: chunk }
+        );
+
+        loaded = end;
+        self.postMessage({ loaded, total } as Progress);
     }
 
     self.postMessage({ done: true });

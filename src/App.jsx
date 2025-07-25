@@ -1,6 +1,6 @@
 import './App.css'
 import React from 'react';
-import { FileUploader } from './components/FileUploader';
+import { FileUploader } from './components/FileUploader.js';
 
 
 function App() {
