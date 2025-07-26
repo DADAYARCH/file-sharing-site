@@ -63,6 +63,11 @@ app.get('/api/files/:fileId/download', (req, res) => {
     res.download(filePath);
 });
 
+app.get('/api/upload-chunk', (_req, res) => {
+    res.send('POST тут, дружок 😉');
+});
+
+
 // Настрока HTTPS
 const PORT = process.env.PORT || 3001;
 if (process.env.SSL_KEY && process.env.SSL_CERT) {
