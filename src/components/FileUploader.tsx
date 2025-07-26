@@ -7,11 +7,45 @@ export function FileUploader() {
     const inputRef = useRef<HTMLInputElement>(null);
     const [worker, setWorker] = useState<Worker>();
 
+    // useEffect(() => {
+    //     const w = new Worker(
+    //         new URL('../workers/uploadWorker.ts', import.meta.url),
+    //         { type: 'module' }
+    //     );
+    //
+    //     w.onmessage = ({ data }) => {
+    //         if (data.done) {
+    //             setProgress(100);
+    //         } else {
+    //             const percent = Math.round((data.loaded / data.total) * 100);
+    //             setProgress(percent);
+    //         }
+    //     };
+    //
+    //     setWorker(w);
+    //     return () => w.terminate();
+    // }, []);
+    //TODO: убрать заглушку
+
     useEffect(() => {
-        const w = new Worker(
-            new URL('../workers/uploadWorker.ts', import.meta.url),
-            { type: 'module' }
-        );
+        let w: Worker;
+
+        if (
+            typeof window !== 'undefined' &&
+            typeof Worker !== 'undefined' &&
+            import.meta.url
+        ) {
+            w = new Worker(
+                new URL('../workers/uploadWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
+        } else {
+            w = {
+                postMessage: () => {},
+                terminate: () => {},
+                onmessage: () => {}
+            } as any as Worker;
+        }
 
         w.onmessage = ({ data }) => {
             if (data.done) {

@@ -1,13 +1,25 @@
-const { defineConfig } = require('ts-jest')
+const { defaults: tsjPreset } = require('ts-jest/presets')
 
 module.exports = {
-    preset: 'ts-jest',
+    ...tsjPreset.esm,
+
+    extensionsToTreatAsEsm: ['.ts', '.tsx'],
+
     testEnvironment: 'jsdom',
-    moduleFileExtensions: ['ts','tsx','js','jsx','json'],
+
     transform: {
-        '^.+\\.[jt]sx?$': 'ts-jest',
+        '^.+\\.[tj]sx?$': ['ts-jest', { useESM: true }],
         '^.+\\.jsx?$': 'babel-jest'
     },
+
+    moduleNameMapper: {
+        '^(\\.{1,2}/.*)\\.js$': '$1'
+    },
+
+    moduleFileExtensions: ['ts','tsx','js','jsx','json'],
+
+    setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+
     collectCoverage: true,
     coverageDirectory: 'coverage',
     coverageThreshold: {
@@ -17,6 +29,5 @@ module.exports = {
             lines: 0,
             statements: 0
         }
-    },
-    setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
-};
+    }
+}
