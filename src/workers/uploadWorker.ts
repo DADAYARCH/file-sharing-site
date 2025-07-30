@@ -4,34 +4,60 @@ interface MessageIn {
     fileId: string;
 }
 
-interface Progress {
+interface ProgressMsg {
     loaded: number;
     total: number;
+    index: number;
+    done?: boolean;
 }
 
-self.addEventListener('message', async ({ data }) => {
-    const { file, chunkSize, fileId } = data as MessageIn;
-    const subtler = crypto.subtle;
+interface ErrorMsg {
+    error: true;
+    index: number;
+}
 
+self.addEventListener('message', async (ev: MessageEvent<MessageIn>) => {
+    const { file, chunkSize, fileId } = ev.data;
     const total = file.size;
     const totalChunks = Math.ceil(total / chunkSize);
-    let loaded = 0;
 
-    for (let i = 0; i < totalChunks; i++) {
-        const start = i * chunkSize;
-        const end = Math.min((i + 1) * chunkSize, total);
+    for (let index = 0; index < totalChunks; index++) {
+        const start = index * chunkSize;
+        const end = Math.min(start + chunkSize, total);
         const chunk = file.slice(start, end);
+        const buffer = await chunk.arrayBuffer();
 
-        await subtler.digest('SHA-256', await chunk.arrayBuffer());
+        try {
+            const resp = await fetch(
+                `/api/upload-chunk`
+                + `?fileId=${encodeURIComponent(fileId)}`
+                + `&fileName=${encodeURIComponent(file.name)}`
+                + `&index=${index}&total=${totalChunks}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: buffer
+                }
+            );
+            if (!resp.ok) throw new Error(`Chunk ${index} upload failed`);
 
-        await fetch(
-            `/api/upload-chunk?fileId=${fileId}&index=${i}&total=${totalChunks}`,
-            { method: 'POST', body: chunk }
-        );
+            const msg: ProgressMsg = {
+                loaded: end,
+                total,
+                index,
+                done: index === totalChunks - 1
+            };
+            self.postMessage(msg);
 
-        loaded = end;
-        self.postMessage({ loaded, total } as Progress);
+            if (index === totalChunks - 1) {
+                break;
+            }
+
+        } catch (err) {
+            console.error(err);
+            const errorMsg: ErrorMsg = { error: true, index };
+            self.postMessage(errorMsg);
+            break;
+        }
     }
-
-    self.postMessage({ done: true });
 });
