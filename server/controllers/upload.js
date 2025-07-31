@@ -1,62 +1,99 @@
-/* eslint-env node */
 import fs from 'fs';
 import path from 'path';
 
 const UPLOAD_DIR = path.resolve(process.cwd(), 'server', 'uploads');
 
-// Обрабатывает POST /api/upload-chunk?fileId=...&index=...&total=...
 export async function handleChunkUpload(req, res) {
     try {
-        const { fileId, index, total } = req.query;
-        if (!fileId || index == null || total == null) {
+        const { fileId, index, total, name } = req.query;
+        const idx = parseInt(index, 10);
+        const tot = parseInt(total, 10);
+        if (!fileId || isNaN(idx) || isNaN(tot)) {
             return res.status(400).json({ error: 'Missing fileId, index or total' });
         }
-        const idx   = parseInt(index, 10);
-        const tot   = parseInt(total,  10);
-        const chunkDir = path.join(UPLOAD_DIR, String(fileId));
+
+        const chunkDir = path.join(UPLOAD_DIR, fileId);
         fs.mkdirSync(chunkDir, { recursive: true });
 
-        // Сохраняем текущий чанк
-        const chunkPath = path.join(chunkDir, String(idx));
-        fs.writeFileSync(chunkPath, req.body);
+        if (idx === 0 && typeof name === 'string') {
+            const decodedName = decodeURIComponent(name);
+            fs.writeFileSync(
+                path.join(UPLOAD_DIR, `${fileId}.json`),
+                JSON.stringify({ name: decodedName })
+            );
+        }
 
-        // Если это последний чанк — собираем в один файл
+        let buffer;
+        if (Buffer.isBuffer(req.body)) {
+            buffer = req.body;
+        } else if (req.body instanceof ArrayBuffer) {
+            buffer = Buffer.from(req.body);
+        } else if (ArrayBuffer.isView(req.body)) {
+            buffer = Buffer.from(req.body);
+        } else if (
+            req.body != null &&
+            typeof req.body === 'object' &&
+            Array.isArray(req.body.data)
+        ) {
+            buffer = Buffer.from(req.body.data);
+        } else {
+            return res.status(400).json({ error: 'Invalid chunk body format' });
+        }
+
+        const chunkPath = path.join(chunkDir, String(idx));
+        fs.writeFileSync(chunkPath, buffer);
+
         if (idx === tot - 1) {
-            const finalPath = path.join(UPLOAD_DIR, String(fileId));
-            const writeStream = fs.createWriteStream(finalPath);
+            const finalPath = path.join(UPLOAD_DIR, fileId);
+            const ws = fs.createWriteStream(finalPath);
             for (let i = 0; i < tot; i++) {
-                const buf = fs.readFileSync(path.join(chunkDir, String(i)));
-                writeStream.write(buf);
+                const part = fs.readFileSync(path.join(chunkDir, String(i)));
+                ws.write(part);
             }
-            writeStream.end();
-            // Удаляем папку с временными чанками
+            ws.end();
             fs.rmSync(chunkDir, { recursive: true, force: true });
         }
 
         return res.json({ status: 'ok', index: idx });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        return res.status(500).json({ error: 'Server error' });
     }
 }
 
-// Обрабатывает GET /api/files/:fileId
 export function getFileInfo(req, res) {
-    const { fileId } = req.params;
-    const filePath = path.join(UPLOAD_DIR, fileId);
+    const filePath = path.join(UPLOAD_DIR, req.params.fileId);
     if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'Not found' });
     }
-    const stat = fs.statSync(filePath);
-    res.json({ name: path.basename(filePath), size: stat.size });
+
+    let name = path.basename(filePath);
+    const metaPath = path.join(UPLOAD_DIR, `${req.params.fileId}.json`);
+    if (fs.existsSync(metaPath)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (parsed.name) name = parsed.name;
+        } catch {}
+    }
+
+    const size = fs.statSync(filePath).size;
+    return res.json({ name, size });
 }
 
-// Обрабатывает GET /api/files/:fileId/download
 export function downloadFile(req, res) {
-    const { fileId } = req.params;
-    const filePath = path.join(UPLOAD_DIR, fileId);
+    const filePath = path.join(UPLOAD_DIR, req.params.fileId);
     if (!fs.existsSync(filePath)) {
         return res.status(404).send('Not found');
     }
-    res.download(filePath);
+
+    let originalName = path.basename(filePath);
+    const metaPath = path.join(UPLOAD_DIR, `${req.params.fileId}.json`);
+    if (fs.existsSync(metaPath)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (parsed.name) originalName = parsed.name;
+        } catch {}
+    }
+
+    return res.download(filePath, originalName);
 }

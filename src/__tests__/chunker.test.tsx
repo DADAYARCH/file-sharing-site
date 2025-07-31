@@ -1,4 +1,4 @@
-import { getChunks } from './chunker';
+import { getChunks } from '../utils/chunker';
 
 test('splits fileSize into correct offsets', () => {
     const chunks = getChunks(5_000_000, 2_000_000);

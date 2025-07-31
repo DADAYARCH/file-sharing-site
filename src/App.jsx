@@ -1,19 +1,16 @@
-import './App.css'
-import React from 'react';
-import { FileUploader } from './components/FileUploader.js';
+import React from 'react'
+import { Routes, Route } from 'react-router-dom'
+import { FileUploader } from './components/FileUploader'
+import { DownloadPage } from './pages/DownloadPage'
 
-
-function App() {
+export default function App() {
     return (
-        <div className="App" style={{ maxWidth: 600, margin: '2rem auto' }}>
+        <>
             <h1 style={{ textAlign: 'center' }}>File Sharer</h1>
-
-            <FileUploader />
-
-             <div className="card" style={{ marginTop: '2rem' }}>
-      </div>
-        </div>
+            <Routes>
+                <Route path="/" element={<FileUploader />} />
+                <Route path="/download/:token" element={<DownloadPage />} />
+            </Routes>
+        </>
     )
 }
-
-export default App

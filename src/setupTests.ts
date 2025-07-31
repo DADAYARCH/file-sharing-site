@@ -1,9 +1,27 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom'
+import { webcrypto } from 'crypto'
+
+Object.defineProperty(globalThis, 'crypto', {
+    value: webcrypto,
+    configurable: true,
+})
+
+import { TextEncoder, TextDecoder } from 'util'
+Object.defineProperty(globalThis, 'TextEncoder', {
+    value: TextEncoder,
+    configurable: true,
+})
+Object.defineProperty(globalThis, 'TextDecoder', {
+    value: TextDecoder,
+    configurable: true,
+})
 
 class MockWorker {
-    onmessage = () => {};
+    onmessage = (_: any) => {}
     postMessage(_data?: any) {}
     terminate() {}
 }
-// @ts-ignore
-global.Worker = MockWorker;
+Object.defineProperty(globalThis, 'Worker', {
+    value: MockWorker,
+    configurable: true,
+})
