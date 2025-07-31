@@ -1,12 +1,42 @@
-import { encryptLink, decryptLink, LinkPayload } from '../services/linkService';
+import { createLink, validateLink, LinkPayload } from '../services/linkService';
 
-test('linkService: roundtrip payload', async () => {
+beforeEach(() => {
+    global.fetch = jest.fn();
+});
+
+afterEach(() => {
+    jest.resetAllMocks();
+});
+
+test('linkService: roundtrip payload (мокированный backend)', async () => {
     const payload: LinkPayload = {
         fileIds: ['abc123', 'def456'],
-        expiresAt: Date.now() + 3600_000
+        expiresAt: Date.now() + 3600_000,
     };
-    const token = await encryptLink(payload);
-    const result = await decryptLink(token);
-    expect(result.fileIds).toEqual(payload.fileIds);
-    expect(result.expiresAt).toBe(payload.expiresAt);
+
+    const fakeToken = 'FAKE_TOKEN_123';
+
+    (global.fetch as jest.Mock)
+        .mockImplementationOnce((_url: string, init: any) => {
+            expect(init.method).toBe('POST');
+            expect(init.headers['Content-Type']).toBe('application/json');
+            expect(JSON.parse(init.body)).toEqual(payload);
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ token: fakeToken }),
+            });
+        })
+        .mockImplementationOnce((url: string) => {
+            expect(url).toContain(encodeURIComponent(fakeToken));
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(payload),
+            });
+        });
+
+    const token = await createLink(payload);
+    expect(token).toBe(fakeToken);
+
+    const result = await validateLink(token);
+    expect(result).toEqual(payload);
 }, 10000);
