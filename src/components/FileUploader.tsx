@@ -140,7 +140,7 @@ export function FileUploader() {
                                 <Typography>
                                     {item.name} ({fmtSize(item.size)})
                                 </Typography>
-                                {item.status === 'uploading' && (
+                                {(item.status === 'uploading' || item.progress === 100) && (
                                     <>
                                         <LinearProgress variant="determinate" value={item.progress} sx={{ mt: 0.5 }} />
                                         <Typography variant="caption">{item.progress}%</Typography>
