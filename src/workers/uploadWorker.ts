@@ -4,60 +4,53 @@ interface MessageIn {
     fileId: string;
 }
 
-interface ProgressMsg {
+interface Progress {
     loaded: number;
     total: number;
-    index: number;
     done?: boolean;
 }
 
-interface ErrorMsg {
-    error: true;
-    index: number;
-}
+self.addEventListener('message', async ({ data }) => {
+    const { file, chunkSize, fileId } = data as MessageIn;
 
-self.addEventListener('message', async (ev: MessageEvent<MessageIn>) => {
-    const { file, chunkSize, fileId } = ev.data;
     const total = file.size;
     const totalChunks = Math.ceil(total / chunkSize);
+    let loaded = 0;
 
-    for (let index = 0; index < totalChunks; index++) {
-        const start = index * chunkSize;
-        const end = Math.min(start + chunkSize, total);
+    for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min((i + 1) * chunkSize, total);
         const chunk = file.slice(start, end);
         const buffer = await chunk.arrayBuffer();
 
-        try {
-            const resp = await fetch(
-                `/api/upload-chunk`
-                + `?fileId=${encodeURIComponent(fileId)}`
-                + `&fileName=${encodeURIComponent(file.name)}`
-                + `&index=${index}&total=${totalChunks}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/octet-stream' },
-                    body: buffer
-                }
-            );
-            if (!resp.ok) throw new Error(`Chunk ${index} upload failed`);
-
-            const msg: ProgressMsg = {
-                loaded: end,
-                total,
-                index,
-                done: index === totalChunks - 1
-            };
-            self.postMessage(msg);
-
-            if (index === totalChunks - 1) {
-                break;
-            }
-
-        } catch (err) {
-            console.error(err);
-            const errorMsg: ErrorMsg = { error: true, index };
-            self.postMessage(errorMsg);
-            break;
+        const params = new URLSearchParams({
+            fileId,
+            index: String(i),
+            total: String(totalChunks),
+        });
+        if (i === 0) {
+            params.set('name', encodeURIComponent(file.name));
         }
+
+        const resp = await fetch(`/api/upload-chunk?${params.toString()}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+            },
+            body: buffer,
+        });
+
+        if (!resp.ok) {
+            self.postMessage({ error: true, index: i, total, done: false } as Progress);
+            return;
+        }
+
+        loaded = end;
+        self.postMessage({
+            loaded,
+            total,
+            index: i,
+            done: i === totalChunks - 1,
+        } as Progress);
     }
 });

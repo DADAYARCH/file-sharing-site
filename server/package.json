@@ -5,9 +5,11 @@
   "description": "",
   "main": "server.js",
   "dependencies": {
+    "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "file-sharer": "file:.."
+    "file-sharer": "file:..",
+    "jsonwebtoken": "^9.0.2"
   },
   "scripts": {
     "start": "node server.js"

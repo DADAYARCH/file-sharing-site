@@ -3,31 +3,36 @@ import path from 'path';
 
 const UPLOAD_DIR = path.resolve(process.cwd(), 'server', 'uploads');
 
-
 export async function handleChunkUpload(req, res) {
     try {
-        const { fileId, fileName, index, total } = req.query;
-        if (!fileId || !fileName || index == null || total == null) {
-            return res.status(400).json({ error: 'Missing fileId, fileName, index or total' });
-        }
-
+        const { fileId, index, total, name } = req.query;
         const idx = parseInt(index, 10);
         const tot = parseInt(total, 10);
+        if (!fileId || isNaN(idx) || isNaN(tot)) {
+            return res.status(400).json({ error: 'Missing fileId, index or total' });
+        }
 
-        const chunkDir = path.join(UPLOAD_DIR, String(fileId));
+        const chunkDir = path.join(UPLOAD_DIR, fileId);
         fs.mkdirSync(chunkDir, { recursive: true });
+
+        if (idx === 0 && typeof name === 'string') {
+            const decodedName = decodeURIComponent(name);
+            fs.writeFileSync(
+                path.join(UPLOAD_DIR, `${fileId}.json`),
+                JSON.stringify({ name: decodedName })
+            );
+        }
 
         let buffer;
         if (Buffer.isBuffer(req.body)) {
             buffer = req.body;
         } else if (req.body instanceof ArrayBuffer) {
-            buffer = Buffer.from(new Uint8Array(req.body));
+            buffer = Buffer.from(req.body);
         } else if (ArrayBuffer.isView(req.body)) {
             buffer = Buffer.from(req.body);
         } else if (
             req.body != null &&
             typeof req.body === 'object' &&
-            (req.body.type === 'Buffer' || req.body.type === 'ArrayBuffer') &&
             Array.isArray(req.body.data)
         ) {
             buffer = Buffer.from(req.body.data);
@@ -39,10 +44,11 @@ export async function handleChunkUpload(req, res) {
         fs.writeFileSync(chunkPath, buffer);
 
         if (idx === tot - 1) {
-            const finalPath = path.join(UPLOAD_DIR, String(fileName));
+            const finalPath = path.join(UPLOAD_DIR, fileId);
             const ws = fs.createWriteStream(finalPath);
             for (let i = 0; i < tot; i++) {
-                ws.write(fs.readFileSync(path.join(chunkDir, String(i))));
+                const part = fs.readFileSync(path.join(chunkDir, String(i)));
+                ws.write(part);
             }
             ws.end();
             fs.rmSync(chunkDir, { recursive: true, force: true });
@@ -53,4 +59,41 @@ export async function handleChunkUpload(req, res) {
         console.error(err);
         return res.status(500).json({ error: 'Server error' });
     }
+}
+
+export function getFileInfo(req, res) {
+    const filePath = path.join(UPLOAD_DIR, req.params.fileId);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Not found' });
+    }
+
+    let name = path.basename(filePath);
+    const metaPath = path.join(UPLOAD_DIR, `${req.params.fileId}.json`);
+    if (fs.existsSync(metaPath)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (parsed.name) name = parsed.name;
+        } catch {}
+    }
+
+    const size = fs.statSync(filePath).size;
+    return res.json({ name, size });
+}
+
+export function downloadFile(req, res) {
+    const filePath = path.join(UPLOAD_DIR, req.params.fileId);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('Not found');
+    }
+
+    let originalName = path.basename(filePath);
+    const metaPath = path.join(UPLOAD_DIR, `${req.params.fileId}.json`);
+    if (fs.existsSync(metaPath)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (parsed.name) originalName = parsed.name;
+        } catch {}
+    }
+
+    return res.download(filePath, originalName);
 }
