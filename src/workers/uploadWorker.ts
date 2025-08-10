@@ -5,7 +5,7 @@ interface MessageIn {
 }
 
 interface Progress {
-    loaded: number;
+    loaded?: number;
     total: number;
     done?: boolean;
 }

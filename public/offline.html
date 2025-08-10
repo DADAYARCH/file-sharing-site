@@ -1,0 +1,29 @@
+<!-- public/offline.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Offline</title>
+    <style>body { font-family: sans-serif; text-align:center; padding:2rem; }</style>
+</head>
+<body>
+<h1>Вы офлайн</h1>
+<p>История ваших загрузок доступна ниже:</p>
+<div id="history-root"></div>
+<script>
+    const history = JSON.parse(localStorage.getItem('uploadHistory')||'[]');
+    const root = document.getElementById('history-root');
+    if (!history.length) {
+        root.innerHTML = '<p>История пуста.</p>';
+    } else {
+        root.innerHTML = history.map(entry=>{
+            const t = new Date(entry.timestamp).toLocaleString();
+            const files = entry.files.map(f=>`• ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join('<br>');
+            return `<div style="margin:1rem 0;border:1px solid #ccc;padding:0.5rem">
+          <small>${t}</small><br>${files}
+        </div>`;
+        }).join('');
+    }
+</script>
+</body>
+</html>

@@ -15,9 +15,9 @@ interface FileMeta {
 
 export function DownloadPage() {
     const { token } = useParams<{ token: string }>();
-    const [payload, setPayload] = useState<{ fileIds: string[] }>();
     const [files, setFiles] = useState<FileMeta[]>([]);
     const [error, setError] = useState<string>();
+    const [fileIds, setFileIds] = useState<string[]>([]);
 
     useEffect(() => {
         if (!token) {
@@ -25,14 +25,18 @@ export function DownloadPage() {
             return;
         }
         validateLink(token)
-            .then(p => setPayload(p))
-            .catch(() => setError('Неверный или просроченный токен'));
+            .then(payload => {
+                setFileIds(payload.fileIds);
+            })
+            .catch(() => {
+                setError('Срок действия ссылки истёк или токен неверен');
+            });
     }, [token]);
 
     useEffect(() => {
-        if (!payload) return;
+        if (fileIds.length === 0) return;
         Promise.all(
-            payload.fileIds.map(id =>
+            fileIds.map(id =>
                 fetch(`/api/files/${id}`)
                     .then(res => {
                         if (!res.ok) throw new Error();
@@ -41,8 +45,10 @@ export function DownloadPage() {
             )
         )
             .then(setFiles)
-            .catch(() => setError('Ошибка при получении данных файлов'));
-    }, [payload]);
+            .catch(() => {
+                setError('Не удалось получить информацию о файлах');
+            });
+    }, [fileIds]);
 
     if (error) {
         return (
@@ -52,8 +58,7 @@ export function DownloadPage() {
             </Box>
         );
     }
-
-    if (!payload || files.length < (payload.fileIds?.length || 0)) {
+    if (!fileIds.length || files.length < fileIds.length) {
         return (
             <Box sx={{ p: 4, textAlign: 'center' }}>
                 <CircularProgress />
@@ -61,7 +66,7 @@ export function DownloadPage() {
         );
     }
 
-    const bundleUrl = `/api/bundle/${token}`;
+    const bundleUrl = `/api/bundle/${encodeURIComponent(token as string)}`;
 
     return (
         <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4, textAlign: 'center' }}>
@@ -74,7 +79,10 @@ export function DownloadPage() {
                         {Math.round(files[0].size / 1024)} KB
                     </Typography>
                     <Box sx={{ mt: 2 }}>
-                        <Button variant="contained" href={`/api/files/${payload.fileIds[0]}/download`}>
+                        <Button
+                            variant="contained"
+                            href={`/api/files/${fileIds[0]}/download`}
+                        >
                             Скачать файл
                         </Button>
                     </Box>
@@ -93,7 +101,7 @@ export function DownloadPage() {
                             </Typography>
                             <Button
                                 size="small"
-                                href={`/api/files/${payload.fileIds[i]}/download`}
+                                href={`/api/files/${fileIds[i]}/download`}
                             >
                                 Скачать
                             </Button>
