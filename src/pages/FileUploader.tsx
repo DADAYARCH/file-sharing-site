@@ -33,10 +33,20 @@ interface HistoryEntry {
     id: string;
     timestamp: number;
     files: { name: string; size: number }[];
+    fileIds: string[];
     spaLink: string;
+    expiresAt?: number;
 }
 
 const STORAGE_KEY = 'uploadHistory';
+
+const TTL_PRESETS = [
+    { label: '1 минута', ms: 60 * 1000 },
+    { label: '1 час',    ms: 60 * 60 * 1000 },
+    { label: '6 час',    ms: 6 * 60 * 60 * 1000 },
+    { label: '1 день',  ms: 24 * 60 * 60 * 1000 },
+    { label: '7 дней',   ms: 7  * 24 * 60 * 60 * 1000 },
+];
 
 export function FileUploader() {
     const MAX_PARALLEL = 2;
@@ -48,8 +58,9 @@ export function FileUploader() {
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [copied, setCopied] = useState(false);
     const [online, setOnline] = useState(navigator.onLine);
-    const [ttlMs, setTtlMs] = useState<number>( 3600 * 1000);
+    const [ttlMs, setTtlMs] = useState<number>(60 * 60 * 1000);
 
+    const [currentIds, setCurrentIds] = useState<string[]>([]);
     const inputRef = useRef<HTMLInputElement>(null);
     const qrCanvas = useRef<HTMLCanvasElement>(null);
 
@@ -73,9 +84,8 @@ export function FileUploader() {
 
     function startUpload(file: File) {
         const id = crypto.randomUUID();
-        const w = new Worker(new URL('../workers/uploadWorker.ts', import.meta.url), {
-            type: 'module',
-        });
+        const w = new Worker(new URL('../workers/uploadWorker.ts', import.meta.url), { type: 'module' });
+
         w.onmessage = ({ data }) => {
             setFileList(prev =>
                 prev.map(item =>
@@ -92,54 +102,89 @@ export function FileUploader() {
             ...prev,
             { id, name: file.name, size: file.size, progress: 0, status: 'uploading', worker: w },
         ]);
+
         w.postMessage({ file, chunkSize: 1024 * 1024, fileId: id });
         setSpaLink(undefined);
         setZipLink(undefined);
+        setCurrentIds([]);
     }
 
     function handleFiles(files: FileList | File[]) {
         setQueue(q => [...q, ...Array.from(files)]);
     }
 
-    useEffect(() => {
-        if (fileList.length > 0 && fileList.every(f => f.status === 'done')) {
-            (async () => {
-                const token = await createLink({
-                    fileIds: fileList.map(f => f.id),
-                    expiresAt: Date.now() + ttlMs,
-                });
-                const newSpaLink = `/download/${token}`;
-                const newZipLink = `/api/bundle/${token}`;
-                setSpaLink(newSpaLink);
-                setZipLink(newZipLink);
+    async function generateLinks(ids: string[], ttl: number) {
+        const expiresAt = Date.now() + ttl;
+        const token = await createLink({ fileIds: ids, expiresAt });
+        const enc = encodeURIComponent(token);
+        const newSpa = `/download/${enc}`;
+        const newZip = `/api/bundle/${enc}`;
+        setSpaLink(newSpa);
+        setZipLink(newZip);
 
+
+        setHistory(prev => {
+            const idx = prev.findIndex(e =>
+                e.fileIds.length === ids.length && e.fileIds.every((v, i) => v === ids[i])
+            );
+            if (idx >= 0) {
+                const next = prev.slice();
+                next[idx] = { ...next[idx], spaLink: newSpa, expiresAt };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+                return next;
+            } else {
+                const filesMeta = fileList
+                    .filter(f => ids.includes(f.id))
+                    .map(f => ({ name: f.name, size: f.size }));
                 const entry: HistoryEntry = {
                     id: crypto.randomUUID(),
                     timestamp: Date.now(),
-                    files: fileList.map(f => ({ name: f.name, size: f.size })),
-                    spaLink: newSpaLink
+                    files: filesMeta,
+                    fileIds: ids.slice(),
+                    spaLink: newSpa,
+                    expiresAt
                 };
-                const updated = [entry, ...history];
-                setHistory(updated);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-            })();
+                const next = [entry, ...prev];
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+                return next;
+            }
+        });
+    }
+
+    useEffect(() => {
+        if (fileList.length > 0 && fileList.every(f => f.status === 'done')) {
+            const ids = fileList.map(f => f.id);
+            setCurrentIds(ids);
+            generateLinks(ids, ttlMs).catch(console.error);
         }
     }, [fileList]);
 
     useEffect(() => {
-        if (!spaLink) return;
+        if (!spaLink) {
+            if (qrCanvas.current) {
+                const ctx = qrCanvas.current.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, qrCanvas.current.width, qrCanvas.current.height);
+            }
+            return;
+        }
         const fullUrl = window.location.origin + spaLink;
         if (qrCanvas.current) {
             toCanvas(qrCanvas.current, fullUrl, { errorCorrectionLevel: 'H', width: 250 }).catch(console.error);
         }
     }, [spaLink]);
 
+    useEffect(() => {
+        const onOff = () => setOnline(navigator.onLine);
+        window.addEventListener('online', onOff);
+        window.addEventListener('offline', onOff);
+        return () => {
+            window.removeEventListener('online', onOff);
+            window.removeEventListener('offline', onOff);
+        };
+    }, []);
+
     const fmtSize = (b: number) =>
-        b < 1024
-            ? `${b} B`
-            : b < 1024 * 1024
-                ? `${(b / 1024).toFixed(1)} KB`
-                : `${(b / 1024 / 1024).toFixed(1)} MB`;
+        b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
 
     const handleCopy = () => {
         if (!spaLink) return;
@@ -153,6 +198,10 @@ export function FileUploader() {
             if (next.length === 0){
                 setSpaLink(undefined);
                 setZipLink(undefined);
+                setCurrentIds([]);
+            } else {
+                const ids = next.filter(f => f.status === 'done').map(f => f.id);
+                setCurrentIds(ids);
             }
             return next;
         });
@@ -162,16 +211,6 @@ export function FileUploader() {
         setHistory([]);
         localStorage.removeItem(STORAGE_KEY);
     };
-
-    useEffect(() => {
-        const onOff = () => setOnline(navigator.onLine);
-        window.addEventListener('online', onOff);
-        window.addEventListener('offline', onOff);
-        return () => {
-            window.removeEventListener('online', onOff);
-            window.removeEventListener('offline', onOff);
-        };
-    }, []);
 
     return (
         <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
@@ -184,6 +223,7 @@ export function FileUploader() {
                 onDrop={(e: DragEvent) => {
                     e.preventDefault();
                     setIsDragging(false);
+                    if (!online) return;
                     if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
                 }}
             >
@@ -196,8 +236,6 @@ export function FileUploader() {
                 />
                 <Typography variant="h6">{online ? 'Перетащите файлы сюда или нажмите' : 'Вы офлайн — загрузка отключена'}</Typography>
             </Paper>
-
-
 
             {fileList.length > 0 && (
                 <Box sx={{ mt: 3, textAlign: 'left' }}>
@@ -241,23 +279,11 @@ export function FileUploader() {
             {spaLink && zipLink && (
                 <Box sx={{ mt: 3, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                     <Typography variant="subtitle1">Поделитесь этой ссылкой для скачивания</Typography>
-                    <FormControl sx={{ minWidth: 160, mb: 2 }}>
-                        <InputLabel id="ttl-label">Время жизни ссылки</InputLabel>
-                        <Select
-                            labelId="ttl-label"
-                            value={ttlMs}
-                            label="Время жизни ссылки"
-                            onChange={e => setTtlMs(+e.target.value)}
-                        >
-                            <MenuItem value={60 * 1000}>1 минута</MenuItem>
-                            <MenuItem value={3600 * 1000}>1 час</MenuItem>
-                            <MenuItem value={6 * 3600 * 1000}>6 часов</MenuItem>
-                            <MenuItem value={12 * 3600 * 1000}>12 часов</MenuItem>
-                            <MenuItem value={24 * 3600 * 1000}>1 день</MenuItem>
-                            <MenuItem value={7 * 24 * 3600 * 1000}>7 дней</MenuItem>
-                        </Select>
-                    </FormControl>
-                    <Box sx={{display: 'inline-flex', alignItems: 'center', border: 1, borderColor: 'grey.400', borderRadius: 2, p: 1, overflow: 'hidden', maxWidth: 250, mx: 'auto'}}>
+
+                    <Box sx={{
+                        display: 'inline-flex', alignItems: 'center', border: 1, borderColor: 'grey.400',
+                        borderRadius: 2, p: 1, overflow: 'hidden', maxWidth: 320, mx: 'auto'
+                    }}>
                         <Link href={spaLink} target="_blank" underline="none"
                                 sx={{mr: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
                               {window.location.origin + spaLink}
@@ -268,6 +294,32 @@ export function FileUploader() {
                             </IconButton>
                         </Tooltip>
                     </Box>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <FormControl size="small">
+                            <InputLabel id="ttl-label">Срок жизни</InputLabel>
+                            <Select
+                                labelId="ttl-label"
+                                label="Срок жизни"
+                                value={ttlMs}
+                                onChange={(e) => setTtlMs(Number(e.target.value))}
+                                sx={{ minWidth: 160 }}
+                            >
+                                {TTL_PRESETS.map(p => (
+                                    <MenuItem key={p.ms} value={p.ms}>{p.label}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+
+                        <Button
+                            variant="outlined"
+                            onClick={() => currentIds.length && generateLinks(currentIds, ttlMs)}
+                            disabled={currentIds.length === 0}
+                        >
+                            Перегенерировать ссылку
+                        </Button>
+                    </Box>
+
                     <canvas ref={qrCanvas} width={250} height={250} />
 
                     <Snackbar
@@ -283,16 +335,13 @@ export function FileUploader() {
                 <>
                     <Divider sx={{ my: 4 }} />
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Typography variant="h6" gutterBottom>История загрузок:</Typography>
-                        <Button onClick={clearHistory}
-                                variant="text"
-                                size="small"
-                                sx={{
-                                    textTransform:'none',
-                                    color: 'text.secondary',
-                                    fontSize: '0.875rem',
-                                    '&:hover': { background: 'transparent', color: 'text.primary' }
-                                }}>
+                        <Typography variant="h6" gutterBottom>История загрузок:</Typography>
+                        <Button
+                            onClick={() => { setHistory([]); localStorage.removeItem(STORAGE_KEY); }}
+                            variant="text" size="small"
+                            sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.875rem',
+                                '&:hover': { background: 'transparent', color: 'text.primary' } }}
+                        >
                             Очистить
                         </Button>
                     </Box>
@@ -300,6 +349,7 @@ export function FileUploader() {
                         <Paper key={entry.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
                             <Typography variant="caption" color="textSecondary">
                                 {new Date(entry.timestamp).toLocaleString()}
+                                {entry.expiresAt && ` • действует до ${new Date(entry.expiresAt).toLocaleString()}`}
                             </Typography>
                             <Box sx={{ mt: 1 }}>
                                 {entry.files.map((f, i) => (

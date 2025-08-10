@@ -4,10 +4,44 @@ interface MessageIn {
     fileId: string;
 }
 
-interface Progress {
+interface ProgressOut {
     loaded?: number;
     total: number;
+    index?: number;
     done?: boolean;
+    error?: boolean;
+}
+
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 300;
+const CHUNK_TIMEOUT_MS = 30000;
+
+function sleep(ms: number) {
+    return new Promise(res => setTimeout(res, ms));
+}
+
+async function uploadWithRetry(url: string, body: ArrayBuffer, attempt = 1): Promise<Response> {
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), CHUNK_TIMEOUT_MS);
+
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body,
+            signal: controller.signal,
+            cache: 'no-store',
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp;
+    } catch (err) {
+        if (attempt >= MAX_RETRIES) throw err;
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        await sleep(delay);
+        return uploadWithRetry(url, body, attempt + 1);
+    } finally {
+        clearTimeout(to);
+    }
 }
 
 self.addEventListener('message', async ({ data }) => {
@@ -28,20 +62,14 @@ self.addEventListener('message', async ({ data }) => {
             index: String(i),
             total: String(totalChunks),
         });
-        if (i === 0) {
-            params.set('name', encodeURIComponent(file.name));
-        }
+        if (i === 0) params.set('name', file.name);
 
-        const resp = await fetch(`/api/upload-chunk?${params.toString()}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream',
-            },
-            body: buffer,
-        });
+        const url = `/api/upload-chunk?${params.toString()}`;
 
-        if (!resp.ok) {
-            self.postMessage({ error: true, index: i, total, done: false } as Progress);
+        try {
+            await uploadWithRetry(url, buffer);
+        } catch (e) {
+            self.postMessage({ error: true, index: i, total } as ProgressOut);
             return;
         }
 
@@ -51,6 +79,6 @@ self.addEventListener('message', async ({ data }) => {
             total,
             index: i,
             done: i === totalChunks - 1,
-        } as Progress);
+        } as ProgressOut);
     }
 });
