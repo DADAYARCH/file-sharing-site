@@ -38,7 +38,21 @@ interface HistoryEntry {
     expiresAt?: number;
 }
 
+interface PendingEntry {
+    fileId: string;
+    name: string;
+    size: number;
+    lastModified: number;
+    chunkSize: number;
+    totalChunks: number;
+    nextIndex: number;
+    startedAt: number;
+}
+
+type PendingUI = PendingEntry & { key: string };
+
 const STORAGE_KEY = 'uploadHistory';
+const PENDING_KEY = 'pendingUploads';
 
 const TTL_PRESETS = [
     { label: '1 минута', ms: 60 * 1000 },
@@ -48,8 +62,31 @@ const TTL_PRESETS = [
     { label: '7 дней',   ms: 7  * 24 * 60 * 60 * 1000 },
 ];
 
+const MAX_PARALLEL = 2;
+const CHUNK_SIZE = 1024 * 1024;
+
+const fmtSize = (b: number) =>
+    b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
+
+function pendingKeyFor(file: { name: string; size: number; lastModified: number }) {
+    return `${file.name}|${file.size}|${file.lastModified}`;
+}
+
+function readPendingMap(): Record<string, PendingEntry> {
+    try {
+        const raw = localStorage.getItem(PENDING_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch {
+        return {};
+    }
+}
+function writePendingMap(map: Record<string, PendingEntry>) {
+    try {
+        localStorage.setItem(PENDING_KEY, JSON.stringify(map));
+    } catch {}
+}
+
 export function FileUploader() {
-    const MAX_PARALLEL = 2;
     const [queue, setQueue] = useState<File[]>([]);
     const [fileList, setFileList] = useState<FileItem[]>([]);
     const [spaLink, setSpaLink] = useState<string>();
@@ -59,8 +96,12 @@ export function FileUploader() {
     const [copied, setCopied] = useState(false);
     const [online, setOnline] = useState(navigator.onLine);
     const [ttlMs, setTtlMs] = useState<number>(60 * 60 * 1000);
-
     const [currentIds, setCurrentIds] = useState<string[]>([]);
+
+    const [pendingMap, setPendingMap] = useState<Record<string, PendingEntry>>({});
+    const pendingList = Object.entries(pendingMap).map(([k, v]) => ({ key: k, ...v }));
+    const [firstVisitAfterClose, setFirstVisitAfterClose] = useState(false);
+
     const inputRef = useRef<HTMLInputElement>(null);
     const qrCanvas = useRef<HTMLCanvasElement>(null);
 
@@ -68,9 +109,29 @@ export function FileUploader() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
             if (raw) setHistory(JSON.parse(raw));
-        } catch (e) {
-            console.warn('Не удалось прочитать историю загрузок', e);
+        } catch {}
+
+        const rawPending = readPendingMap();
+        setPendingMap(rawPending);
+
+        const visited = sessionStorage.getItem('uploaderVisited');
+        if (!visited && Object.keys(rawPending).length > 0) {
+            setFirstVisitAfterClose(true);
         }
+
+        sessionStorage.setItem('uploaderVisited', '1');
+
+    }, []);
+
+
+    useEffect(() => {
+        const onOff = () => setOnline(navigator.onLine);
+        window.addEventListener('online', onOff);
+        window.addEventListener('offline', onOff);
+        return () => {
+            window.removeEventListener('online', onOff);
+            window.removeEventListener('offline', onOff);
+        };
     }, []);
 
     useEffect(() => {
@@ -85,6 +146,22 @@ export function FileUploader() {
     function startUpload(file: File) {
         const id = crypto.randomUUID();
         const w = new Worker(new URL('../workers/uploadWorker.ts', import.meta.url), { type: 'module' });
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        const pKey = pendingKeyFor(file);
+        const newPending: PendingEntry = {
+            fileId: id,
+            name: file.name,
+            size: file.size,
+            lastModified: file.lastModified,
+            chunkSize: CHUNK_SIZE,
+            totalChunks,
+            nextIndex: 0,
+            startedAt: Date.now(),
+        };
+        const map = { ...pendingMap, [pKey]: newPending };
+        setPendingMap(map);
+        writePendingMap(map);
 
         w.onmessage = ({ data }) => {
             setFileList(prev =>
@@ -96,6 +173,24 @@ export function FileUploader() {
                             : { ...item, progress: Math.round((data.loaded / data.total) * 100) }
                 )
             );
+
+            if (typeof data.index === 'number') {
+                const map2 = readPendingMap();
+                const e = map2[pKey];
+                if (e) {
+                    e.nextIndex = data.index + 1;
+                    map2[pKey] = e;
+                    writePendingMap(map2);
+                    setPendingMap(map2);
+                }
+            }
+
+            if (data.done) {
+                const map2 = readPendingMap();
+                delete map2[pKey];
+                writePendingMap(map2);
+                setPendingMap(map2);
+            }
         };
 
         setFileList(prev => [
@@ -103,13 +198,61 @@ export function FileUploader() {
             { id, name: file.name, size: file.size, progress: 0, status: 'uploading', worker: w },
         ]);
 
-        w.postMessage({ file, chunkSize: 1024 * 1024, fileId: id });
+        w.postMessage({ file, chunkSize: CHUNK_SIZE, fileId: id, startIndex: 0 });
+        setSpaLink(undefined);
+        setZipLink(undefined);
+        setCurrentIds([]);
+    }
+
+    function startUploadResume(file: File, entry: PendingEntry) {
+        const { fileId, nextIndex, totalChunks, chunkSize } = entry;
+
+        const w = new Worker(new URL('../workers/uploadWorker.ts', import.meta.url), { type: 'module' });
+
+        w.onmessage = ({ data }) => {
+            setFileList(prev =>
+                prev.map(item =>
+                    item.id !== fileId
+                        ? item
+                        : data.done
+                            ? { ...item, progress: 100, status: 'done' }
+                            : { ...item, progress: Math.round((data.loaded / data.total) * 100) }
+                )
+            );
+
+            const key = pendingKeyFor({ name: file.name, size: file.size, lastModified: file.lastModified });
+            if (typeof data.index === 'number') {
+                const map2 = readPendingMap();
+                const e = map2[key];
+                if (e) {
+                    e.nextIndex = data.index + 1;
+                    map2[key] = e;
+                    writePendingMap(map2);
+                    setPendingMap(map2);
+                }
+            }
+            if (data.done) {
+                const map2 = readPendingMap();
+                delete map2[key];
+                writePendingMap(map2);
+                setPendingMap(map2);
+            }
+        };
+
+        const initialProgress = Math.floor((nextIndex / totalChunks) * 100);
+        setFileList(prev => [
+            ...prev,
+            { id: fileId, name: file.name, size: file.size, progress: initialProgress, status: 'uploading', worker: w },
+        ]);
+
+        w.postMessage({ file, chunkSize: entry.chunkSize, fileId, startIndex: nextIndex });
         setSpaLink(undefined);
         setZipLink(undefined);
         setCurrentIds([]);
     }
 
     function handleFiles(files: FileList | File[]) {
+        if (!online) return;
         setQueue(q => [...q, ...Array.from(files)]);
     }
 
@@ -121,7 +264,6 @@ export function FileUploader() {
         const newZip = `/api/bundle/${enc}`;
         setSpaLink(newSpa);
         setZipLink(newZip);
-
 
         setHistory(prev => {
             const idx = prev.findIndex(e =>
@@ -173,19 +315,6 @@ export function FileUploader() {
         }
     }, [spaLink]);
 
-    useEffect(() => {
-        const onOff = () => setOnline(navigator.onLine);
-        window.addEventListener('online', onOff);
-        window.addEventListener('offline', onOff);
-        return () => {
-            window.removeEventListener('online', onOff);
-            window.removeEventListener('offline', onOff);
-        };
-    }, []);
-
-    const fmtSize = (b: number) =>
-        b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
-
     const handleCopy = () => {
         if (!spaLink) return;
         const fullUrl = window.location.origin + spaLink;
@@ -193,9 +322,9 @@ export function FileUploader() {
     };
 
     const removeItem = (id: string) => {
-        setFileList(prev =>{
+        setFileList(prev => {
             const next = prev.filter(f => f.id !== id);
-            if (next.length === 0){
+            if (next.length === 0) {
                 setSpaLink(undefined);
                 setZipLink(undefined);
                 setCurrentIds([]);
@@ -205,12 +334,52 @@ export function FileUploader() {
             }
             return next;
         });
+        const updated = readPendingMap();
+        const victimKey = Object.keys(updated).find(k => updated[k].fileId === id);
+        if (victimKey) {
+            delete updated[victimKey];
+            writePendingMap(updated);
+            setPendingMap(updated);
+        }
     };
 
     const clearHistory = () =>{
         setHistory([]);
         localStorage.removeItem(STORAGE_KEY);
     };
+
+async function resumePending(uiEntry: PendingUI) {
+    const key = uiEntry.key;
+    const entry = { ...uiEntry } as PendingEntry;
+    try {
+        if ('showOpenFilePicker' in window) {
+            const [handle]: FileSystemFileHandle[] = await (window as any).showOpenFilePicker();
+            const file = await handle.getFile();
+            if (file.name === entry.name && file.size === entry.size && file.lastModified === entry.lastModified) {
+                startUploadResume(file, entry);
+            } else {
+                alert('Выбранный файл не совпадает с исходным (имя/размер/дата).');
+            }
+        } else {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.onchange = () => {
+                const f = input.files?.[0];
+                if (!f) return;
+                if (f.name === entry.name && f.size === entry.size && f.lastModified === entry.lastModified) {
+                    startUploadResume(f, entry);
+                } else {
+                    alert('Выбранный файл не совпадает с исходным (имя/размер/дата).');
+                }
+            };
+            input.click();
+        }
+        setFirstVisitAfterClose(false);
+    } catch (e) {
+        console.warn('Возобновление отклонено или не удалось:', e);
+        alert('Не удалось открыть диалог выбора файла. Повторите попытку.');
+    }
+}
 
     return (
         <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
@@ -236,6 +405,29 @@ export function FileUploader() {
                 />
                 <Typography variant="h6">{online ? 'Перетащите файлы сюда или нажмите' : 'Вы офлайн — загрузка отключена'}</Typography>
             </Paper>
+
+            {firstVisitAfterClose && pendingList.length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                    <Typography variant="subtitle1">Незавершённые загрузки:</Typography>
+                    {pendingList.map(p => (
+                        <Paper key={p.key} variant="outlined" sx={{ p: 2, mt: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Box sx={{ mr: 2, flex: 1 }}>
+                                <Typography>{p.name} ({fmtSize(p.size)})</Typography>
+                                <Typography variant="caption">Продолжить с чанка {p.nextIndex} из {p.totalChunks}</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button size="small" variant="contained" onClick={() => resumePending(p)}>Продолжить</Button>
+                                <Button size="small" variant="text" onClick={() => {
+                                    const m = { ...pendingMap };
+                                    delete m[p.key];
+                                    setPendingMap(m);
+                                    writePendingMap(m);
+                                }}>Удалить</Button>
+                            </Box>
+                        </Paper>
+                    ))}
+                </Box>
+            )}
 
             {fileList.length > 0 && (
                 <Box sx={{ mt: 3, textAlign: 'left' }}>
@@ -337,7 +529,7 @@ export function FileUploader() {
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Typography variant="h6" gutterBottom>История загрузок:</Typography>
                         <Button
-                            onClick={() => { setHistory([]); localStorage.removeItem(STORAGE_KEY); }}
+                            onClick={clearHistory}
                             variant="text" size="small"
                             sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.875rem',
                                 '&:hover': { background: 'transparent', color: 'text.primary' } }}

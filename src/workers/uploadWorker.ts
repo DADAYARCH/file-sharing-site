@@ -2,6 +2,7 @@ interface MessageIn {
     file: File;
     chunkSize: number;
     fileId: string;
+    startIndex?: number;
 }
 
 interface ProgressOut {
@@ -45,13 +46,13 @@ async function uploadWithRetry(url: string, body: ArrayBuffer, attempt = 1): Pro
 }
 
 self.addEventListener('message', async ({ data }) => {
-    const { file, chunkSize, fileId } = data as MessageIn;
+    const { file, chunkSize, fileId, startIndex = 0 } = data as MessageIn;
 
     const total = file.size;
     const totalChunks = Math.ceil(total / chunkSize);
-    let loaded = 0;
+    let loaded = startIndex * chunkSize;
 
-    for (let i = 0; i < totalChunks; i++) {
+    for (let i = startIndex; i < totalChunks; i++) {
         const start = i * chunkSize;
         const end = Math.min((i + 1) * chunkSize, total);
         const chunk = file.slice(start, end);
@@ -62,7 +63,7 @@ self.addEventListener('message', async ({ data }) => {
             index: String(i),
             total: String(totalChunks),
         });
-        if (i === 0) params.set('name', file.name);
+        if (i === 0) params.set('name', encodeURIComponent(file.name));
 
         const url = `/api/upload-chunk?${params.toString()}`;
 

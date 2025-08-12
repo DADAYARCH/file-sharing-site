@@ -97,3 +97,28 @@ export function downloadFile(req, res) {
 
     return res.download(filePath, originalName);
 }
+
+export function getUploadStatus(req, res) {
+    try {
+        const { fileId } = req.query;
+        if (!fileId) return res.status(400).json({ error: 'Missing fileId' });
+
+        const chunkDir = path.join(UPLOAD_DIR, String(fileId));
+        const finalPath = path.join(UPLOAD_DIR, String(fileId));
+
+        let uploaded = [];
+        if (fs.existsSync(chunkDir)) {
+            uploaded = fs.readdirSync(chunkDir)
+                .filter(n => /^\d+$/.test(n))
+                .map(n => parseInt(n, 10))
+                .sort((a,b)=>a-b);
+        }
+
+        const finalized = fs.existsSync(finalPath) && !fs.existsSync(chunkDir);
+
+        return res.json({ uploaded, finalized });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: 'Server error' });
+    }
+}
