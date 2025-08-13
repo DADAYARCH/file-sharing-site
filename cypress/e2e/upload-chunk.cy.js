@@ -6,6 +6,7 @@ describe('Chunk upload flow', () => {
         cy.visit('/');
 
         cy.intercept('POST', '/api/upload-chunk*').as('uploadChunk');
+        cy.intercept('POST', '/api/link').as('createLink');
 
         cy.get('input[type=file]').should('exist').attachFile('small.txt', { force: true });
 
@@ -13,6 +14,10 @@ describe('Chunk upload flow', () => {
 
         cy.contains('100%', { timeout: 10000 }).should('be.visible');
 
-        cy.contains('Перейти к странице скачивания', { timeout: 15000 }).should('be.visible');
+        cy.wait('@createLink', { timeout: 15000 });
+
+        cy.get('[data-testid=share-section]', { timeout: 15000 }).should('be.visible');
+        cy.get('[data-testid=link-for-share]').should('contain', '/download/');
+        cy.get('canvas[data-testid=qr]').should('be.visible');
     });
 });

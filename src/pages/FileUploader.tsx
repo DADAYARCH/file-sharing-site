@@ -469,19 +469,19 @@ async function resumePending(uiEntry: PendingUI) {
             )}
 
             {spaLink && zipLink && (
-                <Box sx={{ mt: 3, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <Box  data-testid="share-section" sx={{ mt: 3, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                     <Typography variant="subtitle1">Поделитесь этой ссылкой для скачивания</Typography>
 
                     <Box sx={{
                         display: 'inline-flex', alignItems: 'center', border: 1, borderColor: 'grey.400',
                         borderRadius: 2, p: 1, overflow: 'hidden', maxWidth: 320, mx: 'auto'
                     }}>
-                        <Link href={spaLink} target="_blank" underline="none"
+                        <Link data-testid="link-for-share" href={spaLink} target="_blank" underline="none"
                                 sx={{mr: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
                               {window.location.origin + spaLink}
                         </Link>
                         <Tooltip title="Копировать в буфер">
-                            <IconButton onClick={handleCopy} size="small">
+                            <IconButton  data-testid="copy-button" onClick={handleCopy} size="small">
                                 <FileCopyIcon fontSize="small" />
                             </IconButton>
                         </Tooltip>
@@ -512,7 +512,7 @@ async function resumePending(uiEntry: PendingUI) {
                         </Button>
                     </Box>
 
-                    <canvas ref={qrCanvas} width={250} height={250} />
+                    <canvas  data-testid="qr" ref={qrCanvas} width={250} height={250} />
 
                     <Snackbar
                         open={copied}
