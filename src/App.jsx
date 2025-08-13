@@ -1,6 +1,6 @@
 import React from 'react'
 import { Routes, Route } from 'react-router-dom'
-import { FileUploader } from './components/FileUploader'
+import { FileUploader } from './pages/FileUploader.js'
 import { DownloadPage } from './pages/DownloadPage'
 
 export default function App() {

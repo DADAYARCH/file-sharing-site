@@ -3,8 +3,12 @@ import fs from 'fs';
 import archiver from 'archiver';
 import jwt from 'jsonwebtoken';
 
-const SECRET = process.env.JWT_SECRET || 'super-secret-change-me';
+const SECRET = process.env.JWT_SECRET;
 const UPLOAD_DIR = path.resolve(process.cwd(), 'server', 'uploads');
+
+if (!SECRET) {
+    throw new Error('JWT_SECRET is not defined in environment');
+}
 
 // GET /api/bundle/:token
 export async function bundleDownload(req, res) {

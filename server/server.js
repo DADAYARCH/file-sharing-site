@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import 'dotenv/config';
 
 import {
     handleChunkUpload,
@@ -10,6 +11,7 @@ import {
 } from './controllers/upload.js';
 import { createLink, validateLink } from './controllers/link.js';
 import { bundleDownload } from './controllers/bundle.js';
+import { getUploadStatus } from './controllers/upload.js';
 
 const app = express();
 app.use(cors());
@@ -31,6 +33,8 @@ app.get('/api/files/:fileId', getFileInfo);
 app.get('/api/files/:fileId/download', downloadFile);
 
 app.get('/api/bundle/:token', bundleDownload);
+
+app.get('/api/upload-status', getUploadStatus);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`HTTP listening on ${PORT}`));

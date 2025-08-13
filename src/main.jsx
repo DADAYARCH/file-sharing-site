@@ -14,3 +14,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </BrowserRouter>
     </ThemeProvider>
 )
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () =>
+        navigator.serviceWorker.register('/offlineWorker.js')
+            .catch(console.error)
+    );
+}
