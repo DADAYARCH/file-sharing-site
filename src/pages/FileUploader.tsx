@@ -17,8 +17,11 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import FileCopyIcon from '@mui/icons-material/FileCopy';
+import { v4 as uuidv4 } from 'uuid';
 import { toCanvas } from 'qrcode';
 import { createLink } from '../services/linkService';
+import { createUploadWorker } from '../workers/createUploadWorker';
+
 
 interface FileItem {
     id: string;
@@ -144,8 +147,8 @@ export function FileUploader() {
     }, [queue, fileList]);
 
     function startUpload(file: File) {
-        const id = crypto.randomUUID();
-        const w = new Worker(new URL('../workers/uploadWorker.ts', import.meta.url), { type: 'module' });
+        const id = uuidv4();
+        const w = createUploadWorker();
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
         const pKey = pendingKeyFor(file);
@@ -207,7 +210,7 @@ export function FileUploader() {
     function startUploadResume(file: File, entry: PendingEntry) {
         const { fileId, nextIndex, totalChunks, chunkSize } = entry;
 
-        const w = new Worker(new URL('../workers/uploadWorker.ts', import.meta.url), { type: 'module' });
+        const w = createUploadWorker();
 
         w.onmessage = ({ data }) => {
             setFileList(prev =>
@@ -279,7 +282,7 @@ export function FileUploader() {
                     .filter(f => ids.includes(f.id))
                     .map(f => ({ name: f.name, size: f.size }));
                 const entry: HistoryEntry = {
-                    id: crypto.randomUUID(),
+                    id: uuidv4(),
                     timestamp: Date.now(),
                     files: filesMeta,
                     fileIds: ids.slice(),
@@ -397,6 +400,7 @@ async function resumePending(uiEntry: PendingUI) {
                 }}
             >
                 <input
+                    data-testid="upload-section"
                     type="file"
                     multiple
                     ref={inputRef}
@@ -527,8 +531,9 @@ async function resumePending(uiEntry: PendingUI) {
                 <>
                     <Divider sx={{ my: 4 }} />
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Typography variant="h6" gutterBottom>История загрузок:</Typography>
+                        <Typography data-testid = "history-head" variant="h6" gutterBottom>История загрузок:</Typography>
                         <Button
+                            data-testid = "clear-btn"
                             onClick={clearHistory}
                             variant="text" size="small"
                             sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.875rem',
