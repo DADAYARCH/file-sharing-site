@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev:frontend": "vite",
+    "dev:frontend": "vite --host 0.0.0.0",
     "dev:server": "npm --prefix server install && npm --prefix server start",
     "dev": "npm-run-all --parallel dev:frontend dev:server",
     "start:server": "npm --prefix server start",
@@ -18,6 +18,7 @@
     "cy:run": "cypress run"
   },
   "dependencies": {
+    "-": "^0.0.1",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.2.0",
@@ -27,7 +28,8 @@
     "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^6.30.1"
+    "react-router-dom": "^6.30.1",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
@@ -51,11 +53,11 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
-    "jest": "^30.0.4",
+    "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.4",
     "node-fetch": "^2.7.0",
     "npm-run-all": "^4.1.5",
-    "ts-jest": "^29.4.0",
+    "ts-jest": "^29.4.1",
     "vite": "^7.0.4",
     "wait-on": "^8.0.3"
   }

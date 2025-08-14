@@ -16,6 +16,16 @@ Object.defineProperty(globalThis, 'TextDecoder', {
     configurable: true,
 })
 
+Object.defineProperty(window.navigator, 'clipboard', {
+    value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    configurable: true,
+});
+
+beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+});
+
 class MockWorker {
     onmessage = (_: any) => {}
     postMessage(_data?: any) {}
